@@ -14,4 +14,6 @@ add_executable(bootloader main.c )
 pico_add_extra_outputs(bootloader)
 pico_set_binary_type(bootloader copy_to_ram)
 
-target_link_libraries(bootloader pico_stdlib)
+set_target_properties(bootloader PROPERTIES COMPILE_FLAGS "-Wall")
+
+target_link_libraries(bootloader pico_stdlib pico_stdio_usb)
