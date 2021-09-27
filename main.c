@@ -15,19 +15,15 @@
 #define UART_RX_PIN 16
 
 #define CMD_SYNC (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
+#define CMD_READ (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
+
 #define RSP_SYNC (('P' << 0) | ('I' << 8) | ('C' << 16) | ('O' << 24))
 #define RSP_OK   (('O' << 0) | ('K' << 8) | ('O' << 16) | ('K' << 24))
 #define RSP_ERR  (('E' << 0) | ('R' << 8) | ('R' << 16) | ('!' << 24))
 
-static bool is_error(uint32_t status)
-{
-	return status == RSP_ERR;
-}
-
-static uint32_t handle_sync(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
-{
-	return RSP_SYNC;
-}
+static uint32_t handle_sync(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
+static uint32_t size_read(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out);
+static uint32_t handle_read(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 
 struct command_desc {
 	uint32_t opcode;
@@ -45,10 +41,53 @@ const struct command_desc cmds[] = {
 		.size = NULL,
 		.handle = &handle_sync,
 	},
+	{
+		// READ addr len
+		.opcode = CMD_READ,
+		.nargs = 2,
+		.resp_nargs = 0,
+		.size = &size_read,
+		.handle = &handle_read,
+	},
 };
 const unsigned int N_CMDS = (sizeof(cmds) / sizeof(cmds[0]));
 const uint32_t MAX_NARG = 4;
 const uint32_t MAX_DATA_LEN = 4096;
+
+static bool is_error(uint32_t status)
+{
+	return status == RSP_ERR;
+}
+
+static uint32_t handle_sync(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+{
+	return RSP_SYNC;
+}
+
+static uint32_t size_read(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out)
+{
+	uint32_t size = args_in[1];
+	if (size > MAX_DATA_LEN) {
+		return RSP_ERR;
+	}
+
+	// TODO: Validate address
+
+	*data_len_out = 0;
+	*resp_data_len_out = size;
+
+	return RSP_OK;
+}
+
+static uint32_t handle_read(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+{
+	uint32_t addr = args_in[0];
+	uint32_t size = args_in[1];
+
+	memcpy(resp_data_out, (void *)addr, size);
+
+	return RSP_OK;
+}
 
 static const struct command_desc *find_command_desc(uint32_t opcode)
 {
