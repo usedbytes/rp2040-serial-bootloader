@@ -14,8 +14,8 @@
 #define UART_TX_PIN 17
 #define UART_RX_PIN 16
 
-#define CMD_SYNC (('P' << 0) | ('I' << 8) | ('C' << 16) | ('O' << 24))
-#define RSP_SYNC (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
+#define CMD_SYNC (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
+#define RSP_SYNC (('P' << 0) | ('I' << 8) | ('C' << 16) | ('O' << 24))
 #define RSP_OK   (('O' << 0) | ('K' << 8) | ('O' << 16) | ('K' << 24))
 #define RSP_ERR  (('E' << 0) | ('R' << 8) | ('R' << 16) | ('!' << 24))
 
