@@ -8,6 +8,8 @@
 
 #include "pico/stdio_usb.h"
 #include "pico/time.h"
+#include "hardware/dma.h"
+#include "hardware/structs/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/uart.h"
 
@@ -16,6 +18,10 @@
 
 #define CMD_SYNC (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
 #define CMD_READ (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
+// TODO: CRC32 would be much better than this dumb checksum, but I
+// can't make sense of the values the HW is producing. Raised
+// https://github.com/raspberrypi/pico-sdk/issues/576
+#define CMD_CSUM (('C' << 0) | ('S' << 8) | ('U' << 16) | ('M' << 24))
 
 #define RSP_SYNC (('P' << 0) | ('I' << 8) | ('C' << 16) | ('O' << 24))
 #define RSP_OK   (('O' << 0) | ('K' << 8) | ('O' << 16) | ('K' << 24))
@@ -24,6 +30,8 @@
 static uint32_t handle_sync(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 static uint32_t size_read(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out);
 static uint32_t handle_read(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
+static uint32_t size_csum(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out);
+static uint32_t handle_csum(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 
 struct command_desc {
 	uint32_t opcode;
@@ -43,11 +51,21 @@ const struct command_desc cmds[] = {
 	},
 	{
 		// READ addr len
+		// RESP [data]
 		.opcode = CMD_READ,
 		.nargs = 2,
 		.resp_nargs = 0,
 		.size = &size_read,
 		.handle = &handle_read,
+	},
+	{
+		// CSUM addr len
+		// RESP csum
+		.opcode = CMD_CSUM,
+		.nargs = 2,
+		.resp_nargs = 1,
+		.size = &size_csum,
+		.handle = &handle_csum,
 	},
 };
 const unsigned int N_CMDS = (sizeof(cmds) / sizeof(cmds[0]));
@@ -85,6 +103,52 @@ static uint32_t handle_read(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_
 	uint32_t size = args_in[1];
 
 	memcpy(resp_data_out, (void *)addr, size);
+
+	return RSP_OK;
+}
+
+static uint32_t size_csum(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out)
+{
+	uint32_t addr = args_in[0];
+	uint32_t size = args_in[1];
+
+	if ((addr & 0x3) || (size & 0x3)) {
+		// Must be aligned
+		return RSP_ERR;
+	}
+
+	// TODO: Validate address
+
+	*data_len_out = 0;
+	*resp_data_len_out = 0;
+
+	return RSP_OK;
+}
+static uint32_t handle_csum(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+{
+	uint32_t dummy_dest;
+	uint32_t addr = args_in[0];
+	uint32_t size = args_in[1];
+
+	int channel = dma_claim_unused_channel(true);
+
+	dma_channel_config c = dma_channel_get_default_config(channel);
+	channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
+	channel_config_set_read_increment(&c, true);
+	channel_config_set_write_increment(&c, false);
+	channel_config_set_sniff_enable(&c, true);
+
+	dma_hw->sniff_data = 0;
+	dma_sniffer_enable(channel, 0xf, true);
+
+	dma_channel_configure(channel, &c, &dummy_dest, (void *)addr, size / 4, true);
+
+	dma_channel_wait_for_finish_blocking(channel);
+
+	dma_sniffer_disable();
+	dma_channel_unclaim(channel);
+
+	*resp_args_out = dma_hw->sniff_data;
 
 	return RSP_OK;
 }
