@@ -18,9 +18,6 @@
 
 #define CMD_SYNC (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
 #define CMD_READ (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
-// TODO: CRC32 would be much better than this dumb checksum, but I
-// can't make sense of the values the HW is producing. Raised
-// https://github.com/raspberrypi/pico-sdk/issues/576
 #define CMD_CSUM (('C' << 0) | ('S' << 8) | ('U' << 16) | ('M' << 24))
 #define CMD_CRC  (('C' << 0) | ('R' << 8) | ('C' << 16) | ('C' << 24))
 
@@ -184,52 +181,45 @@ static uint32_t size_crc(uint32_t *args_in, uint32_t *data_len_out, uint32_t *re
 	return RSP_OK;
 }
 
-static uint32_t reverse_u32(uint32_t in)
-{
-	// There's definitely smarter ways to do this :-)
-	uint32_t out = 0;
-	int i;
-
-	for (i = 0; i < 32; i++) {
-		if (in & (1 << i)) {
-			out |= (1 << (31 - i));
-		}
-	}
-
-	return out;
-}
-
-static uint32_t handle_crc(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+// ptr must be 4-byte aligned and len must be a multiple of 4
+static uint32_t calc_crc32(void *ptr, uint32_t len)
 {
 	uint32_t dummy_dest, crc;
-	uint32_t addr = args_in[0];
-	uint32_t size = args_in[1];
 
 	int channel = dma_claim_unused_channel(true);
-
 	dma_channel_config c = dma_channel_get_default_config(channel);
 	channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
 	channel_config_set_read_increment(&c, true);
 	channel_config_set_write_increment(&c, false);
 	channel_config_set_sniff_enable(&c, true);
 
+	// Seed the CRC calculation
 	dma_hw->sniff_data = 0xffffffff;
+
 	// Mode 1, then bit-reverse the result gives the same result as
 	// golang's IEEE802.3 implementation
-	// The sniffer does have a OUT_REV control which should do the
-	// reversing, but I can't get it to work
 	dma_sniffer_enable(channel, 0x1, true);
+	dma_hw->sniff_ctrl |= DMA_SNIFF_CTRL_OUT_REV_BITS;
 
-	dma_channel_configure(channel, &c, &dummy_dest, (void *)addr, size / 4, true);
+	dma_channel_configure(channel, &c, &dummy_dest, ptr, len / 4, true);
 
 	dma_channel_wait_for_finish_blocking(channel);
+
+	// Read the result before resetting
+	crc = dma_hw->sniff_data ^ 0xffffffff;
 
 	dma_sniffer_disable();
 	dma_channel_unclaim(channel);
 
-	crc = dma_hw->sniff_data ^ 0xffffffff;
+	return crc;
+}
 
-	*resp_args_out = reverse_u32(crc);
+static uint32_t handle_crc(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+{
+	uint32_t addr = args_in[0];
+	uint32_t size = args_in[1];
+
+	resp_args_out[0] = calc_crc32((void *)addr, size);
 
 	return RSP_OK;
 }
