@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "RP2040.h"
 #include "pico/stdio_usb.h"
 #include "pico/time.h"
 #include "hardware/dma.h"
@@ -24,10 +25,36 @@
 #define CMD_ERASE (('E' << 0) | ('R' << 8) | ('A' << 16) | ('S' << 24))
 #define CMD_WRITE (('W' << 0) | ('R' << 8) | ('I' << 16) | ('T' << 24))
 #define CMD_SEAL  (('S' << 0) | ('E' << 8) | ('A' << 16) | ('L' << 24))
+#define CMD_GO    (('G' << 0) | ('O' << 8) | ('G' << 16) | ('O' << 24))
 
 #define RSP_SYNC (('P' << 0) | ('I' << 8) | ('C' << 16) | ('O' << 24))
 #define RSP_OK   (('O' << 0) | ('K' << 8) | ('O' << 16) | ('K' << 24))
 #define RSP_ERR  (('E' << 0) | ('R' << 8) | ('R' << 16) | ('!' << 24))
+
+static void disable_interrupts(void)
+{
+	NVIC->ICER[0] = 0xFFFFFFFF;
+	NVIC->ICPR[0] = 0xFFFFFFFF;
+
+	SysTick->CTRL &= ~1; /* disable the systick, which operates separately from nvic */
+}
+
+static void set_msp_and_jump(uint32_t vtor)
+{
+	// Dedicated function with no call to any function (appart the last call)
+	// This way, there is no manipulation of the stack here, ensuring that GGC
+	// didn't insert any pop from the SP after having set the MSP.
+	uint32_t reset_vector = *(volatile uint32_t *)(vtor + 0x04); /* reset ptr in vector table */
+
+	SCB->VTOR = (volatile uint32_t) (vtor);
+
+	asm volatile("msr msp, %0"::"g"
+			(*(volatile uint32_t *)vtor));
+
+	// Inline asm branch, because otherwise the compiler was doing something
+	// weird (ldmia.w) which was causing us to take an abort
+	asm volatile("bx %0"::"r" (reset_vector));
+}
 
 static uint32_t handle_sync(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 static uint32_t size_read(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out);
@@ -40,6 +67,7 @@ static uint32_t handle_erase(uint32_t *args_in, uint8_t *data_in, uint32_t *resp
 static uint32_t size_write(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out);
 static uint32_t handle_write(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
+static uint32_t handle_go(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 
 struct command_desc {
 	uint32_t opcode;
@@ -110,6 +138,15 @@ const struct command_desc cmds[] = {
 		.resp_nargs = 0,
 		.size = NULL,
 		.handle = &handle_seal,
+	},
+	{
+		// GOGO vtor
+		// NO RESPONSE
+		.opcode = CMD_GO,
+		.nargs = 1,
+		.resp_nargs = 0,
+		.size = NULL,
+		.handle = &handle_go,
 	},
 };
 const unsigned int N_CMDS = (sizeof(cmds) / sizeof(cmds[0]));
@@ -358,6 +395,17 @@ static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_
 	return RSP_ERR;
 }
 
+static uint32_t handle_go(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+{
+	disable_interrupts();
+
+	set_msp_and_jump(args_in[0]);
+
+	while(1);
+
+	return RSP_ERR;
+}
+
 static const struct command_desc *find_command_desc(uint32_t opcode)
 {
 	unsigned int i;
@@ -503,7 +551,7 @@ int main(void)
 {
 	sleep_ms(100);
 
-	stdio_usb_init();
+	//stdio_usb_init();
 
 	uart_init(uart0, 115200);
 	gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);

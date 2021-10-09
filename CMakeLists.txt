@@ -16,4 +16,4 @@ pico_set_binary_type(bootloader copy_to_ram)
 
 set_target_properties(bootloader PROPERTIES COMPILE_FLAGS "-Wall")
 
-target_link_libraries(bootloader pico_stdlib pico_stdio_usb hardware_dma hardware_structs)
+target_link_libraries(bootloader pico_stdlib pico_stdio_usb hardware_dma hardware_structs cmsis_core)
