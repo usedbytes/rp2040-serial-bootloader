@@ -18,6 +18,7 @@
 
 #define UART_TX_PIN 17
 #define UART_RX_PIN 16
+#define UART_BAUD   576000
 
 #define CMD_SYNC  (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
 #define CMD_READ  (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
@@ -566,7 +567,7 @@ int main(void)
 
 	//stdio_usb_init();
 
-	uart_init(uart0, 115200);
+	uart_init(uart0, UART_BAUD);
 	gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
 	gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
 	uart_set_hw_flow(uart0, false, false);
