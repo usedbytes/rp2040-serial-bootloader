@@ -23,6 +23,7 @@
 #define CMD_CRC   (('C' << 0) | ('R' << 8) | ('C' << 16) | ('C' << 24))
 #define CMD_ERASE (('E' << 0) | ('R' << 8) | ('A' << 16) | ('S' << 24))
 #define CMD_WRITE (('W' << 0) | ('R' << 8) | ('I' << 16) | ('T' << 24))
+#define CMD_SEAL  (('S' << 0) | ('E' << 8) | ('A' << 16) | ('L' << 24))
 
 #define RSP_SYNC (('P' << 0) | ('I' << 8) | ('C' << 16) | ('O' << 24))
 #define RSP_OK   (('O' << 0) | ('K' << 8) | ('O' << 16) | ('K' << 24))
@@ -38,6 +39,7 @@ static uint32_t handle_crc(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_a
 static uint32_t handle_erase(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 static uint32_t size_write(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out);
 static uint32_t handle_write(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
+static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 
 struct command_desc {
 	uint32_t opcode;
@@ -99,6 +101,15 @@ const struct command_desc cmds[] = {
 		.resp_nargs = 1,
 		.size = &size_write,
 		.handle = &handle_write,
+	},
+	{
+		// SEAL vtor len crc
+		// OKOK
+		.opcode = CMD_SEAL,
+		.nargs = 3,
+		.resp_nargs = 0,
+		.size = NULL,
+		.handle = &handle_seal,
 	},
 };
 const unsigned int N_CMDS = (sizeof(cmds) / sizeof(cmds[0]));
@@ -307,6 +318,44 @@ static uint32_t handle_write(uint32_t *args_in, uint8_t *data_in, uint32_t *resp
 	resp_args_out[0] = calc_crc32((void *)addr, size);
 
 	return RSP_OK;
+}
+
+struct image_header {
+	uint32_t vtor;
+	uint32_t size;
+	uint32_t crc;
+	uint8_t pad[FLASH_PAGE_SIZE - (3 * 4)];
+};
+static_assert(sizeof(struct image_header) == FLASH_PAGE_SIZE, "image_header must be FLASH_PAGE_SIZE bytes");
+
+static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+{
+	struct image_header hdr = {
+		.vtor = args_in[0],
+		.size = args_in[1],
+		.crc = args_in[2],
+	};
+
+	if ((hdr.vtor & 0x3) || (hdr.size & 0x3)) {
+		// Must be aligned
+		return RSP_ERR;
+	}
+
+	uint32_t calc = calc_crc32((void *)hdr.vtor, hdr.size);
+
+	if (calc != hdr.crc) {
+		return RSP_ERR;
+	}
+
+	// Need address of a 4k page to erase and write to, from the linker?
+	// flash_range_erase(IMAGE_HEADER_OFFSET, FLASH_SECTOR_SIZE);
+	// flash_range_program(IMAGE_HEADER_OFFSET, &hdr, sizeof(hdr));
+	// struct image_header *check = (struct image_header *)(FLASH_BASE + IMAGE_HEADER_OFFSET)
+	// if (memcmp(&hdr, check, sizeof(hdr))) {
+	//	return RSP_ERR;
+	// }
+
+	return RSP_ERR;
 }
 
 static const struct command_desc *find_command_desc(uint32_t opcode)
