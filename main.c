@@ -13,6 +13,7 @@
 #include "hardware/flash.h"
 #include "hardware/structs/dma.h"
 #include "hardware/gpio.h"
+#include "hardware/resets.h"
 #include "hardware/uart.h"
 
 #define UART_TX_PIN 17
@@ -37,6 +38,16 @@ static void disable_interrupts(void)
 	NVIC->ICPR[0] = 0xFFFFFFFF;
 
 	SysTick->CTRL &= ~1; /* disable the systick, which operates separately from nvic */
+}
+
+static void reset_peripherals(void)
+{
+    reset_block(~(
+            RESETS_RESET_IO_QSPI_BITS |
+            RESETS_RESET_PADS_QSPI_BITS |
+            RESETS_RESET_SYSCFG_BITS |
+            RESETS_RESET_PLL_SYS_BITS
+    ));
 }
 
 static void set_msp_and_jump(uint32_t vtor)
@@ -398,6 +409,8 @@ static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_
 static uint32_t handle_go(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
 {
 	disable_interrupts();
+
+	reset_peripherals();
 
 	set_msp_and_jump(args_in[0]);
 
