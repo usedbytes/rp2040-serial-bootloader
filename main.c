@@ -9,6 +9,7 @@
 #include "pico/stdio_usb.h"
 #include "pico/time.h"
 #include "hardware/dma.h"
+#include "hardware/flash.h"
 #include "hardware/structs/dma.h"
 #include "hardware/gpio.h"
 #include "hardware/uart.h"
@@ -16,10 +17,12 @@
 #define UART_TX_PIN 17
 #define UART_RX_PIN 16
 
-#define CMD_SYNC (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
-#define CMD_READ (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
-#define CMD_CSUM (('C' << 0) | ('S' << 8) | ('U' << 16) | ('M' << 24))
-#define CMD_CRC  (('C' << 0) | ('R' << 8) | ('C' << 16) | ('C' << 24))
+#define CMD_SYNC  (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
+#define CMD_READ  (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
+#define CMD_CSUM  (('C' << 0) | ('S' << 8) | ('U' << 16) | ('M' << 24))
+#define CMD_CRC   (('C' << 0) | ('R' << 8) | ('C' << 16) | ('C' << 24))
+#define CMD_ERASE (('E' << 0) | ('R' << 8) | ('A' << 16) | ('S' << 24))
+#define CMD_WRITE (('W' << 0) | ('R' << 8) | ('I' << 16) | ('T' << 24))
 
 #define RSP_SYNC (('P' << 0) | ('I' << 8) | ('C' << 16) | ('O' << 24))
 #define RSP_OK   (('O' << 0) | ('K' << 8) | ('O' << 16) | ('K' << 24))
@@ -32,6 +35,9 @@ static uint32_t size_csum(uint32_t *args_in, uint32_t *data_len_out, uint32_t *r
 static uint32_t handle_csum(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 static uint32_t size_crc(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out);
 static uint32_t handle_crc(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
+static uint32_t handle_erase(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
+static uint32_t size_write(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out);
+static uint32_t handle_write(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 
 struct command_desc {
 	uint32_t opcode;
@@ -51,7 +57,7 @@ const struct command_desc cmds[] = {
 	},
 	{
 		// READ addr len
-		// RESP [data]
+		// OKOK [data]
 		.opcode = CMD_READ,
 		.nargs = 2,
 		.resp_nargs = 0,
@@ -60,7 +66,7 @@ const struct command_desc cmds[] = {
 	},
 	{
 		// CSUM addr len
-		// RESP csum
+		// OKOK csum
 		.opcode = CMD_CSUM,
 		.nargs = 2,
 		.resp_nargs = 1,
@@ -69,17 +75,35 @@ const struct command_desc cmds[] = {
 	},
 	{
 		// CRCC addr len
-		// RESP crc
+		// OKOK crc
 		.opcode = CMD_CRC,
 		.nargs = 2,
 		.resp_nargs = 1,
 		.size = &size_crc,
 		.handle = &handle_crc,
 	},
+	{
+		// ERAS addr len
+		// OKOK
+		.opcode = CMD_ERASE,
+		.nargs = 2,
+		.resp_nargs = 0,
+		.size = NULL,
+		.handle = &handle_erase,
+	},
+	{
+		// WRIT addr len [data]
+		// OKOK crc
+		.opcode = CMD_WRITE,
+		.nargs = 2,
+		.resp_nargs = 1,
+		.size = &size_write,
+		.handle = &handle_write,
+	},
 };
 const unsigned int N_CMDS = (sizeof(cmds) / sizeof(cmds[0]));
 const uint32_t MAX_NARG = 4;
-const uint32_t MAX_DATA_LEN = 4096;
+const uint32_t MAX_DATA_LEN = FLASH_SECTOR_SIZE;
 
 static bool is_error(uint32_t status)
 {
@@ -218,6 +242,67 @@ static uint32_t handle_crc(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_a
 {
 	uint32_t addr = args_in[0];
 	uint32_t size = args_in[1];
+
+	resp_args_out[0] = calc_crc32((void *)addr, size);
+
+	return RSP_OK;
+}
+
+static uint32_t handle_erase(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+{
+	uint32_t addr = args_in[0];
+	uint32_t size = args_in[1];
+
+	// TODO: Protect the bootloader!
+	if (addr < 0x10000000) {
+		// Below flash start
+		return RSP_ERR;
+	}
+
+	if ((addr & (FLASH_SECTOR_SIZE - 1)) || (size & (FLASH_SECTOR_SIZE - 1))) {
+		// Must be aligned
+		return RSP_ERR;
+	}
+
+	flash_range_erase(addr - 0x10000000, size);
+
+	return RSP_OK;
+}
+
+static uint32_t size_write(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out)
+{
+	uint32_t addr = args_in[0];
+	uint32_t size = args_in[1];
+
+	// TODO: Protect the bootloader!
+	if (addr < 0x10000000) {
+		// Below flash start
+		return RSP_ERR;
+	}
+
+	if ((addr & (FLASH_PAGE_SIZE -1)) || (size & (FLASH_PAGE_SIZE -1))) {
+		// Must be aligned
+		return RSP_ERR;
+	}
+
+	if (size > MAX_DATA_LEN) {
+		return RSP_ERR;
+	}
+
+	// TODO: Validate address
+
+	*data_len_out = size;
+	*resp_data_len_out = 0;
+
+	return RSP_OK;
+}
+
+static uint32_t handle_write(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+{
+	uint32_t addr = args_in[0];
+	uint32_t size = args_in[1];
+
+	flash_range_program(addr - 0x10000000, data_in, size);
 
 	resp_args_out[0] = calc_crc32((void *)addr, size);
 
