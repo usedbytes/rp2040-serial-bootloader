@@ -26,6 +26,8 @@ pico_set_binary_type(bootloader copy_to_ram)
 
 set_target_properties(bootloader PROPERTIES COMPILE_FLAGS "-Wall")
 
+pico_set_linker_script(bootloader ${CMAKE_CURRENT_SOURCE_DIR}/bootloader.ld)
+
 target_link_libraries(bootloader
                       pico_stdlib
                       hardware_dma

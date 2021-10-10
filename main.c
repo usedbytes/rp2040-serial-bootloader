@@ -43,6 +43,8 @@
 #define RSP_OK   (('O' << 0) | ('K' << 8) | ('O' << 16) | ('K' << 24))
 #define RSP_ERR  (('E' << 0) | ('R' << 8) | ('R' << 16) | ('!' << 24))
 
+#define IMAGE_HEADER_OFFSET (12 * 1024)
+
 static void disable_interrupts(void)
 {
 	NVIC->ICER[0] = 0xFFFFFFFF;
@@ -395,7 +397,7 @@ static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_
 		.crc = args_in[2],
 	};
 
-	if ((hdr.vtor & 0x3) || (hdr.size & 0x3)) {
+	if ((hdr.vtor & 0xff) || (hdr.size & 0x3)) {
 		// Must be aligned
 		return RSP_ERR;
 	}
@@ -406,15 +408,15 @@ static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_
 		return RSP_ERR;
 	}
 
-	// Need address of a 4k page to erase and write to, from the linker?
-	// flash_range_erase(IMAGE_HEADER_OFFSET, FLASH_SECTOR_SIZE);
-	// flash_range_program(IMAGE_HEADER_OFFSET, &hdr, sizeof(hdr));
-	// struct image_header *check = (struct image_header *)(FLASH_BASE + IMAGE_HEADER_OFFSET)
-	// if (memcmp(&hdr, check, sizeof(hdr))) {
-	//	return RSP_ERR;
-	// }
+	flash_range_erase(IMAGE_HEADER_OFFSET, FLASH_SECTOR_SIZE);
+	flash_range_program(IMAGE_HEADER_OFFSET, (const uint8_t *)&hdr, sizeof(hdr));
 
-	return RSP_ERR;
+	struct image_header *check = (struct image_header *)(XIP_BASE + IMAGE_HEADER_OFFSET);
+	if (memcmp(&hdr, check, sizeof(hdr))) {
+		return RSP_ERR;
+	}
+
+	return RSP_OK;
 }
 
 static uint32_t handle_go(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
