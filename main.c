@@ -35,7 +35,7 @@
 
 #define UART_TX_PIN 17
 #define UART_RX_PIN 16
-#define UART_BAUD   576000
+#define UART_BAUD   921600
 
 #define CMD_SYNC  (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
 #define CMD_READ  (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
