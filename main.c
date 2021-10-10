@@ -52,6 +52,10 @@
 
 #define IMAGE_HEADER_OFFSET (12 * 1024)
 
+#define WRITE_ADDR_MIN (XIP_BASE + IMAGE_HEADER_OFFSET + FLASH_SECTOR_SIZE)
+#define ERASE_ADDR_MIN (XIP_BASE + IMAGE_HEADER_OFFSET)
+#define FLASH_ADDR_MAX (XIP_BASE + PICO_FLASH_SIZE_BYTES)
+
 static void disable_interrupts(void)
 {
 	SysTick->CTRL &= ~1;
@@ -330,9 +334,8 @@ static uint32_t handle_erase(uint32_t *args_in, uint8_t *data_in, uint32_t *resp
 	uint32_t addr = args_in[0];
 	uint32_t size = args_in[1];
 
-	// TODO: Protect the bootloader!
-	if (addr < 0x10000000) {
-		// Below flash start
+	if ((addr < ERASE_ADDR_MIN) || (addr + size >= FLASH_ADDR_MAX)) {
+		// Outside flash
 		return RSP_ERR;
 	}
 
@@ -341,7 +344,7 @@ static uint32_t handle_erase(uint32_t *args_in, uint8_t *data_in, uint32_t *resp
 		return RSP_ERR;
 	}
 
-	flash_range_erase(addr - 0x10000000, size);
+	flash_range_erase(addr - XIP_BASE, size);
 
 	return RSP_OK;
 }
@@ -351,13 +354,12 @@ static uint32_t size_write(uint32_t *args_in, uint32_t *data_len_out, uint32_t *
 	uint32_t addr = args_in[0];
 	uint32_t size = args_in[1];
 
-	// TODO: Protect the bootloader!
-	if (addr < 0x10000000) {
-		// Below flash start
+	if ((addr < WRITE_ADDR_MIN) || (addr + size >= FLASH_ADDR_MAX)) {
+		// Outside flash
 		return RSP_ERR;
 	}
 
-	if ((addr & (FLASH_PAGE_SIZE -1)) || (size & (FLASH_PAGE_SIZE -1))) {
+	if ((addr & (FLASH_PAGE_SIZE - 1)) || (size & (FLASH_PAGE_SIZE -1))) {
 		// Must be aligned
 		return RSP_ERR;
 	}
@@ -379,7 +381,7 @@ static uint32_t handle_write(uint32_t *args_in, uint8_t *data_in, uint32_t *resp
 	uint32_t addr = args_in[0];
 	uint32_t size = args_in[1];
 
-	flash_range_program(addr - 0x10000000, data_in, size);
+	flash_range_program(addr - XIP_BASE, data_in, size);
 
 	resp_args_out[0] = calc_crc32((void *)addr, size);
 
