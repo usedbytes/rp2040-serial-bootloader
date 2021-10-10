@@ -45,6 +45,7 @@
 #define CMD_WRITE (('W' << 0) | ('R' << 8) | ('I' << 16) | ('T' << 24))
 #define CMD_SEAL  (('S' << 0) | ('E' << 8) | ('A' << 16) | ('L' << 24))
 #define CMD_GO    (('G' << 0) | ('O' << 8) | ('G' << 16) | ('O' << 24))
+#define CMD_INFO  (('I' << 0) | ('N' << 8) | ('F' << 16) | ('O' << 24))
 
 #define RSP_SYNC (('P' << 0) | ('I' << 8) | ('C' << 16) | ('O' << 24))
 #define RSP_OK   (('O' << 0) | ('K' << 8) | ('O' << 16) | ('K' << 24))
@@ -101,6 +102,7 @@ static uint32_t size_write(uint32_t *args_in, uint32_t *data_len_out, uint32_t *
 static uint32_t handle_write(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 static uint32_t handle_go(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
+static uint32_t handle_info(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 
 struct command_desc {
 	uint32_t opcode;
@@ -181,9 +183,18 @@ const struct command_desc cmds[] = {
 		.size = NULL,
 		.handle = &handle_go,
 	},
+	{
+		// INFO
+		// OKOK flash_start flash_size erase_size write_size max_data_len
+		.opcode = CMD_INFO,
+		.nargs = 0,
+		.resp_nargs = 5,
+		.size = NULL,
+		.handle = &handle_info,
+	},
 };
 const unsigned int N_CMDS = (sizeof(cmds) / sizeof(cmds[0]));
-const uint32_t MAX_NARG = 4;
+const uint32_t MAX_NARG = 5;
 const uint32_t MAX_DATA_LEN = FLASH_SECTOR_SIZE;
 
 static bool is_error(uint32_t status)
@@ -461,6 +472,17 @@ static uint32_t handle_go(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_ar
 	while(1);
 
 	return RSP_ERR;
+}
+
+static uint32_t handle_info(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+{
+	resp_args_out[0] = WRITE_ADDR_MIN;
+	resp_args_out[1] = (XIP_BASE + PICO_FLASH_SIZE_BYTES) - WRITE_ADDR_MIN;
+	resp_args_out[2] = FLASH_SECTOR_SIZE;
+	resp_args_out[3] = FLASH_PAGE_SIZE;
+	resp_args_out[4] = MAX_DATA_LEN;
+
+	return RSP_OK;
 }
 
 static const struct command_desc *find_command_desc(uint32_t opcode)
