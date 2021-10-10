@@ -54,10 +54,10 @@
 
 static void disable_interrupts(void)
 {
+	SysTick->CTRL &= ~1;
+
 	NVIC->ICER[0] = 0xFFFFFFFF;
 	NVIC->ICPR[0] = 0xFFFFFFFF;
-
-	SysTick->CTRL &= ~1; /* disable the systick, which operates separately from nvic */
 }
 
 static void reset_peripherals(void)
@@ -70,20 +70,18 @@ static void reset_peripherals(void)
     ));
 }
 
-static void set_msp_and_jump(uint32_t vtor)
+static void jump_to_vtor(uint32_t vtor)
 {
-	// Dedicated function with no call to any function (appart the last call)
-	// This way, there is no manipulation of the stack here, ensuring that GGC
-	// didn't insert any pop from the SP after having set the MSP.
-	uint32_t reset_vector = *(volatile uint32_t *)(vtor + 0x04); /* reset ptr in vector table */
+	// Derived from the Leaf Labs Cortex-M3 bootloader.
+	// Copyright (c) 2010 LeafLabs LLC.
+	// Modified 2021 Brian Starkey <stark3y@gmail.com>
+	// Originally under The MIT License
+	uint32_t reset_vector = *(volatile uint32_t *)(vtor + 0x04);
 
-	SCB->VTOR = (volatile uint32_t) (vtor);
+	SCB->VTOR = (volatile uint32_t)(vtor);
 
 	asm volatile("msr msp, %0"::"g"
 			(*(volatile uint32_t *)vtor));
-
-	// Inline asm branch, because otherwise the compiler was doing something
-	// weird (ldmia.w) which was causing us to take an abort
 	asm volatile("bx %0"::"r" (reset_vector));
 }
 
@@ -396,6 +394,32 @@ struct image_header {
 };
 static_assert(sizeof(struct image_header) == FLASH_PAGE_SIZE, "image_header must be FLASH_PAGE_SIZE bytes");
 
+static bool image_header_ok(struct image_header *hdr)
+{
+	uint32_t *vtor = (uint32_t *)hdr->vtor;
+
+	uint32_t calc = calc_crc32((void *)hdr->vtor, hdr->size);
+
+	// CRC has to match
+	if (calc != hdr->crc) {
+		return false;
+	}
+
+	// Stack pointer needs to be in RAM
+	if (vtor[0] < SRAM_BASE) {
+		return false;
+	}
+
+	// Reset vector should be in the image, and thumb (bit 0 set)
+	if ((vtor[1] < hdr->vtor) || (vtor[1] > hdr->vtor + hdr->size) || !(vtor[1] & 1)) {
+		return false;
+	}
+
+	// Looks OK.
+	return true;
+}
+
+
 static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
 {
 	struct image_header hdr = {
@@ -409,9 +433,7 @@ static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_
 		return RSP_ERR;
 	}
 
-	uint32_t calc = calc_crc32((void *)hdr.vtor, hdr.size);
-
-	if (calc != hdr.crc) {
+	if (!image_header_ok(&hdr)) {
 		return RSP_ERR;
 	}
 
@@ -432,7 +454,7 @@ static uint32_t handle_go(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_ar
 
 	reset_peripherals();
 
-	set_msp_and_jump(args_in[0]);
+	jump_to_vtor(args_in[0]);
 
 	while(1);
 
@@ -580,32 +602,6 @@ static enum state state_error(struct cmd_context *ctx)
 	return STATE_WAIT_FOR_SYNC;
 }
 
-static bool image_header_ok()
-{
-	struct image_header *check = (struct image_header *)(XIP_BASE + IMAGE_HEADER_OFFSET);
-	uint32_t *vtor = (uint32_t *)check->vtor;
-
-	uint32_t calc = calc_crc32((void *)check->vtor, check->size);
-
-	// CRC has to match
-	if (calc != check->crc) {
-		return false;
-	}
-
-	// Stack pointer needs to be in RAM
-	if (vtor[0] < SRAM_BASE) {
-		return false;
-	}
-
-	// Reset vector should be in the image, and thumb (bit 0 set)
-	if ((vtor[1] < check->vtor) || (vtor[1] > check->vtor + check->size) || !(vtor[1] & 1)) {
-		return false;
-	}
-
-	// Looks OK.
-	return true;
-}
-
 static bool should_stay_in_bootloader()
 {
 	bool wd_says_so = (watchdog_hw->scratch[5] == BOOTLOADER_ENTRY_MAGIC) &&
@@ -626,11 +622,13 @@ int main(void)
 
 	sleep_ms(10);
 
-	if (!should_stay_in_bootloader() && image_header_ok()) {
+	struct image_header *hdr = (struct image_header *)(XIP_BASE + IMAGE_HEADER_OFFSET);
+
+	if (!should_stay_in_bootloader() && image_header_ok(hdr)) {
 		uint32_t vtor = *((uint32_t *)(XIP_BASE + IMAGE_HEADER_OFFSET));
 		disable_interrupts();
 		reset_peripherals();
-		set_msp_and_jump(vtor);
+		jump_to_vtor(vtor);
 	}
 
 	DBG_PRINTF_INIT();
