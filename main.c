@@ -7,7 +7,6 @@
 #include <string.h>
 
 #include "RP2040.h"
-#include "pico/stdio_usb.h"
 #include "pico/time.h"
 #include "hardware/dma.h"
 #include "hardware/flash.h"
@@ -15,6 +14,17 @@
 #include "hardware/gpio.h"
 #include "hardware/resets.h"
 #include "hardware/uart.h"
+
+#ifdef DEBUG
+#include <stdio.h>
+#include "pico/stdio_usb.h"
+#define DBG_PRINTF_INIT() stdio_usb_init()
+#define DBG_PRINTF(...) printf(__VA_ARGS__)
+#else
+#define DBG_PRINTF_INIT() { }
+#define DBG_PRINTF(...) { }
+#endif
+
 
 #define UART_TX_PIN 17
 #define UART_RX_PIN 16
@@ -564,8 +574,7 @@ static enum state state_error(struct cmd_context *ctx)
 int main(void)
 {
 	sleep_ms(100);
-
-	//stdio_usb_init();
+	DBG_PRINTF_INIT();
 
 	uart_init(uart0, UART_BAUD);
 	gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
@@ -583,34 +592,34 @@ int main(void)
 	while (1) {
 		switch (state) {
 		case STATE_WAIT_FOR_SYNC:
-			printf("wait_for_sync\n");
+			DBG_PRINTF("wait_for_sync\n");
 			state = state_wait_for_sync(&ctx);
-			printf("wait_for_sync done\n");
+			DBG_PRINTF("wait_for_sync done\n");
 			break;
 		case STATE_READ_OPCODE:
-			printf("read_opcode\n");
+			DBG_PRINTF("read_opcode\n");
 			state = state_read_opcode(&ctx);
-			printf("read_opcode done\n");
+			DBG_PRINTF("read_opcode done\n");
 			break;
 		case STATE_READ_ARGS:
-			printf("read_args\n");
+			DBG_PRINTF("read_args\n");
 			state = state_read_args(&ctx);
-			printf("read_args done\n");
+			DBG_PRINTF("read_args done\n");
 			break;
 		case STATE_READ_DATA:
-			printf("read_data\n");
+			DBG_PRINTF("read_data\n");
 			state = state_read_data(&ctx);
-			printf("read_data done\n");
+			DBG_PRINTF("read_data done\n");
 			break;
 		case STATE_HANDLE_DATA:
-			printf("handle_data\n");
+			DBG_PRINTF("handle_data\n");
 			state = state_handle_data(&ctx);
-			printf("handle_data done\n");
+			DBG_PRINTF("handle_data done\n");
 			break;
 		case STATE_ERROR:
-			printf("error\n");
+			DBG_PRINTF("error\n");
 			state = state_error(&ctx);
-			printf("error done\n");
+			DBG_PRINTF("error done\n");
 			break;
 		}
 	}

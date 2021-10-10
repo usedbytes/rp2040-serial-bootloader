@@ -11,9 +11,25 @@ pico_sdk_init()
 
 add_executable(bootloader main.c )
 
+function(target_cl_options option)
+    target_compile_options(bootloader PRIVATE ${option})
+    target_link_options(bootloader PRIVATE ${option})
+endfunction()
+
+target_cl_options("-Os")
+target_cl_options("-ffunction-sections")
+target_cl_options("-fdata-sections")
+target_link_options(bootloader PRIVATE "LINKER:--gc-sections")
+
 pico_add_extra_outputs(bootloader)
 pico_set_binary_type(bootloader copy_to_ram)
 
 set_target_properties(bootloader PROPERTIES COMPILE_FLAGS "-Wall")
 
-target_link_libraries(bootloader pico_stdlib pico_stdio_usb hardware_dma hardware_structs hardware_resets cmsis_core)
+target_link_libraries(bootloader
+                      pico_stdlib
+                      hardware_dma
+                      hardware_flash
+                      hardware_structs
+                      hardware_resets
+                      cmsis_core)
