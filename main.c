@@ -11,6 +11,7 @@
 #include "hardware/dma.h"
 #include "hardware/flash.h"
 #include "hardware/structs/dma.h"
+#include "hardware/structs/watchdog.h"
 #include "hardware/gpio.h"
 #include "hardware/resets.h"
 #include "hardware/uart.h"
@@ -25,6 +26,12 @@
 #define DBG_PRINTF(...) { }
 #endif
 
+// The bootloader can be entered in three ways:
+//  - BOOTLOADER_ENTRY_PIN is low
+//  - Watchdog scratch[5] == BOOTLOADER_ENTRY_PIN && scratch[6] == ~BOOTLOADER_ENTRY_MAGIC
+//  - No valid image header
+#define BOOTLOADER_ENTRY_PIN 15
+#define BOOTLOADER_ENTRY_MAGIC 0xb105f00d
 
 #define UART_TX_PIN 17
 #define UART_RX_PIN 16
@@ -573,18 +580,65 @@ static enum state state_error(struct cmd_context *ctx)
 	return STATE_WAIT_FOR_SYNC;
 }
 
+static bool image_header_ok()
+{
+	struct image_header *check = (struct image_header *)(XIP_BASE + IMAGE_HEADER_OFFSET);
+	uint32_t *vtor = (uint32_t *)check->vtor;
+
+	uint32_t calc = calc_crc32((void *)check->vtor, check->size);
+
+	// CRC has to match
+	if (calc != check->crc) {
+		return false;
+	}
+
+	// Stack pointer needs to be in RAM
+	if (vtor[0] < SRAM_BASE) {
+		return false;
+	}
+
+	// Reset vector should be in the image, and thumb (bit 0 set)
+	if ((vtor[1] < check->vtor) || (vtor[1] > check->vtor + check->size) || !(vtor[1] & 1)) {
+		return false;
+	}
+
+	// Looks OK.
+	return true;
+}
+
+static bool should_stay_in_bootloader()
+{
+	bool wd_says_so = (watchdog_hw->scratch[5] == BOOTLOADER_ENTRY_MAGIC) &&
+		(watchdog_hw->scratch[6] == ~BOOTLOADER_ENTRY_MAGIC);
+
+	return !gpio_get(BOOTLOADER_ENTRY_PIN) || wd_says_so;
+}
+
 int main(void)
 {
-	sleep_ms(100);
+	gpio_init(PICO_DEFAULT_LED_PIN);
+	gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+	gpio_put(PICO_DEFAULT_LED_PIN, 1);
+
+	gpio_init(BOOTLOADER_ENTRY_PIN);
+	gpio_pull_up(BOOTLOADER_ENTRY_PIN);
+	gpio_set_dir(BOOTLOADER_ENTRY_PIN, 0);
+
+	sleep_ms(10);
+
+	if (!should_stay_in_bootloader() && image_header_ok()) {
+		uint32_t vtor = *((uint32_t *)(XIP_BASE + IMAGE_HEADER_OFFSET));
+		disable_interrupts();
+		reset_peripherals();
+		set_msp_and_jump(vtor);
+	}
+
 	DBG_PRINTF_INIT();
 
 	uart_init(uart0, UART_BAUD);
 	gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
 	gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
 	uart_set_hw_flow(uart0, false, false);
-
-	gpio_init(PICO_DEFAULT_LED_PIN);
-	gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 
 	struct cmd_context ctx;
 	uint8_t uart_buf[sizeof(uint32_t) * (1 + MAX_NARG + MAX_DATA_LEN)];
