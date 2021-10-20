@@ -195,7 +195,7 @@ const struct command_desc cmds[] = {
 };
 const unsigned int N_CMDS = (sizeof(cmds) / sizeof(cmds[0]));
 const uint32_t MAX_NARG = 5;
-const uint32_t MAX_DATA_LEN = FLASH_SECTOR_SIZE;
+const uint32_t MAX_DATA_LEN = 1024; //FLASH_SECTOR_SIZE;
 
 static bool is_error(uint32_t status)
 {
