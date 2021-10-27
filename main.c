@@ -15,6 +15,7 @@
 #include "hardware/gpio.h"
 #include "hardware/resets.h"
 #include "hardware/uart.h"
+#include "hardware/watchdog.h"
 
 #ifdef DEBUG
 #include <stdio.h>
@@ -37,15 +38,16 @@
 #define UART_RX_PIN 16
 #define UART_BAUD   921600
 
-#define CMD_SYNC  (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
-#define CMD_READ  (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
-#define CMD_CSUM  (('C' << 0) | ('S' << 8) | ('U' << 16) | ('M' << 24))
-#define CMD_CRC   (('C' << 0) | ('R' << 8) | ('C' << 16) | ('C' << 24))
-#define CMD_ERASE (('E' << 0) | ('R' << 8) | ('A' << 16) | ('S' << 24))
-#define CMD_WRITE (('W' << 0) | ('R' << 8) | ('I' << 16) | ('T' << 24))
-#define CMD_SEAL  (('S' << 0) | ('E' << 8) | ('A' << 16) | ('L' << 24))
-#define CMD_GO    (('G' << 0) | ('O' << 8) | ('G' << 16) | ('O' << 24))
-#define CMD_INFO  (('I' << 0) | ('N' << 8) | ('F' << 16) | ('O' << 24))
+#define CMD_SYNC   (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
+#define CMD_READ   (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
+#define CMD_CSUM   (('C' << 0) | ('S' << 8) | ('U' << 16) | ('M' << 24))
+#define CMD_CRC    (('C' << 0) | ('R' << 8) | ('C' << 16) | ('C' << 24))
+#define CMD_ERASE  (('E' << 0) | ('R' << 8) | ('A' << 16) | ('S' << 24))
+#define CMD_WRITE  (('W' << 0) | ('R' << 8) | ('I' << 16) | ('T' << 24))
+#define CMD_SEAL   (('S' << 0) | ('E' << 8) | ('A' << 16) | ('L' << 24))
+#define CMD_GO     (('G' << 0) | ('O' << 8) | ('G' << 16) | ('O' << 24))
+#define CMD_INFO   (('I' << 0) | ('N' << 8) | ('F' << 16) | ('O' << 24))
+#define CMD_REBOOT (('B' << 0) | ('O' << 8) | ('O' << 16) | ('T' << 24))
 
 #define RSP_SYNC (('P' << 0) | ('I' << 8) | ('C' << 16) | ('O' << 24))
 #define RSP_OK   (('O' << 0) | ('K' << 8) | ('O' << 16) | ('K' << 24))
@@ -103,6 +105,8 @@ static uint32_t handle_write(uint32_t *args_in, uint8_t *data_in, uint32_t *resp
 static uint32_t handle_seal(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 static uint32_t handle_go(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 static uint32_t handle_info(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
+static uint32_t size_reboot(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out);
+static uint32_t handle_reboot(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out);
 
 struct command_desc {
 	uint32_t opcode;
@@ -191,6 +195,15 @@ const struct command_desc cmds[] = {
 		.resp_nargs = 5,
 		.size = NULL,
 		.handle = &handle_info,
+	},
+	{
+		// BOOT to_bootloader
+		// NO RESPONSE
+		.opcode = CMD_REBOOT,
+		.nargs = 1,
+		.resp_nargs = 0,
+		.size = &size_reboot,
+		.handle = &handle_reboot,
 	},
 };
 const unsigned int N_CMDS = (sizeof(cmds) / sizeof(cmds[0]));
@@ -483,6 +496,39 @@ static uint32_t handle_info(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_
 	resp_args_out[4] = MAX_DATA_LEN;
 
 	return RSP_OK;
+}
+
+static void do_reboot(bool to_bootloader)
+{
+	hw_clear_bits(&watchdog_hw->ctrl, WATCHDOG_CTRL_ENABLE_BITS);
+	if (to_bootloader) {
+		watchdog_hw->scratch[5] = BOOTLOADER_ENTRY_MAGIC;
+		watchdog_hw->scratch[6] = ~BOOTLOADER_ENTRY_MAGIC;
+	} else {
+		watchdog_hw->scratch[5] = 0;
+		watchdog_hw->scratch[6] = 0;
+	}
+	watchdog_reboot(0, 0, 0);
+	while (1) {
+		tight_loop_contents();
+		asm("");
+	}
+}
+
+static uint32_t size_reboot(uint32_t *args_in, uint32_t *data_len_out, uint32_t *resp_data_len_out)
+{
+	*data_len_out = 0;
+	*resp_data_len_out = 0;
+
+	return RSP_OK;
+}
+
+static uint32_t handle_reboot(uint32_t *args_in, uint8_t *data_in, uint32_t *resp_args_out, uint8_t *resp_data_out)
+{
+	// Will never return
+	do_reboot(args_in[0]);
+
+	return RSP_ERR;
 }
 
 static const struct command_desc *find_command_desc(uint32_t opcode)
