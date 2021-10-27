@@ -709,7 +709,7 @@ int main(void)
 	uart_set_hw_flow(uart0, false, false);
 
 	struct cmd_context ctx;
-	uint8_t uart_buf[sizeof(uint32_t) * (1 + MAX_NARG + MAX_DATA_LEN)];
+	uint8_t uart_buf[(sizeof(uint32_t) * (1 + MAX_NARG)) + MAX_DATA_LEN];
 	ctx.uart_buf = uart_buf;
 	enum state state = STATE_WAIT_FOR_SYNC;
 
