@@ -34,8 +34,8 @@
 #define BOOTLOADER_ENTRY_PIN 15
 #define BOOTLOADER_ENTRY_MAGIC 0xb105f00d
 
-#define UART_TX_PIN 17
-#define UART_RX_PIN 16
+#define UART_TX_PIN 0
+#define UART_RX_PIN 1
 #define UART_BAUD   921600
 
 #define CMD_SYNC   (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
