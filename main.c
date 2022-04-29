@@ -29,7 +29,7 @@
 
 // The bootloader can be entered in three ways:
 //  - BOOTLOADER_ENTRY_PIN is low
-//  - Watchdog scratch[5] == BOOTLOADER_ENTRY_PIN && scratch[6] == ~BOOTLOADER_ENTRY_MAGIC
+//  - Watchdog scratch[5] == BOOTLOADER_ENTRY_MAGIC && scratch[6] == ~BOOTLOADER_ENTRY_MAGIC
 //  - No valid image header
 #define BOOTLOADER_ENTRY_PIN 15
 #define BOOTLOADER_ENTRY_MAGIC 0xb105f00d
