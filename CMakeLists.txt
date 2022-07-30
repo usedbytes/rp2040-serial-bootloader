@@ -103,16 +103,16 @@ function(bootloader_build_combined NAME)
 
 	pico_add_bin_output(${NAME})
 
-	# TODO: The hard-coded 16k here is a bit nasty
+	# TODO: The hard-coded 36k here is a bit nasty
 	add_custom_target(${APP}_bin DEPENDS ${APP_BIN})
 	add_custom_command(OUTPUT ${APP_BIN} DEPENDS ${NAME}.bin
-		COMMAND dd ibs=1k iseek=16 if=${NAME}.bin of=${APP_BIN}
+		COMMAND dd ibs=1k iseek=36 if=${NAME}.bin of=${APP_BIN}
 	)
 
 	# TODO: The hard-coded address here is a bit nasty
 	add_custom_target(${APP}_hdr DEPENDS ${APP}_bin)
 	add_custom_command(OUTPUT ${APP_HDR} DEPENDS ${APP_BIN}
-		COMMAND ${BOOTLOADER_DIR}/gen_imghdr.py -a 0x10004000 ${APP_BIN} ${APP_HDR}
+		COMMAND ${BOOTLOADER_DIR}/gen_imghdr.py -a 0x10009000 ${APP_BIN} ${APP_HDR}
 	)
 
 	add_custom_target(${COMBINED} ALL DEPENDS ${APP_HDR})
