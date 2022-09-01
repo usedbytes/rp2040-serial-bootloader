@@ -36,7 +36,7 @@
 
 #define UART_TX_PIN 0
 #define UART_RX_PIN 1
-#define UART_BAUD   921600
+#define UART_BAUD   115200
 
 #define CMD_SYNC   (('S' << 0) | ('Y' << 8) | ('N' << 16) | ('C' << 24))
 #define CMD_READ   (('R' << 0) | ('E' << 8) | ('A' << 16) | ('D' << 24))
@@ -686,13 +686,39 @@ int main(void)
 	gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 	gpio_put(PICO_DEFAULT_LED_PIN, 1);
 
+
+	struct image_header *hdr = (struct image_header *)(XIP_BASE + IMAGE_HEADER_OFFSET);
+
+
+	gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
+	gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
+	uart_init(uart0, UART_BAUD);
+	uart_set_hw_flow(uart0, false, false);
+
+	sleep_ms(10); // Bring UP Serial Lines
+
 	gpio_init(BOOTLOADER_ENTRY_PIN);
 	gpio_pull_up(BOOTLOADER_ENTRY_PIN);
 	gpio_set_dir(BOOTLOADER_ENTRY_PIN, 0);
 
 	sleep_ms(10);
 
-	struct image_header *hdr = (struct image_header *)(XIP_BASE + IMAGE_HEADER_OFFSET);
+	while (uart_is_readable(uart0)){uart_getc(uart0);}; //clear Buffer
+    
+	//Wait loop
+    bool no_rec = true;
+
+    uart_puts(uart0, "Boot\r\n");  //Header
+
+	for(int i = 0; i < 10000; i++){
+       busy_wait_us(100);
+       if (uart_is_readable(uart0)){     
+           no_rec = false;
+		   i = 11000;
+		}
+	}
+
+	
 
 	if (!should_stay_in_bootloader() && image_header_ok(hdr)) {
 		uint32_t vtor = *((uint32_t *)(XIP_BASE + IMAGE_HEADER_OFFSET));
@@ -703,15 +729,13 @@ int main(void)
 
 	DBG_PRINTF_INIT();
 
-	uart_init(uart0, UART_BAUD);
-	gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
-	gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
-	uart_set_hw_flow(uart0, false, false);
+
 
 	struct cmd_context ctx;
 	uint8_t uart_buf[(sizeof(uint32_t) * (1 + MAX_NARG)) + MAX_DATA_LEN];
 	ctx.uart_buf = uart_buf;
 	enum state state = STATE_WAIT_FOR_SYNC;
+	watchdog_reboot(0, 0, 4000); //Set WD to 4s
 
 	while (1) {
 		switch (state) {
